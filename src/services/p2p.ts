@@ -11,7 +11,36 @@ import {
   PeerInfo,
 } from '../types';
 import { bufferToBase64, base64ToBuffer } from './crypto';
-import { savePinnedIdentity } from './storage';
+import { savePinnedIdentity, getPinnedIdentity } from './storage';
+
+async function pinHandshakeIdentity(identity: {
+  senderId: string;
+  displayName: string;
+  publicKeyJwk: JsonWebKey;
+  publicKeyId: string;
+}): Promise<void> {
+  const existing = await getPinnedIdentity(identity.senderId);
+  if (existing) {
+    if (
+      existing.publicKeyId !== identity.publicKeyId ||
+      existing.publicKeyJwk.x !== identity.publicKeyJwk.x ||
+      existing.publicKeyJwk.y !== identity.publicKeyJwk.y
+    ) {
+      throw new Error(
+        `Security Alert: Contact "${identity.displayName}" is already pinned to a different cryptographic key (${existing.publicKeyId}). Handshake aborted to prevent key replacement attack.`
+      );
+    }
+  }
+
+  await savePinnedIdentity({
+    senderId: identity.senderId,
+    displayName: identity.displayName,
+    publicKeyJwk: identity.publicKeyJwk,
+    publicKeyId: identity.publicKeyId,
+    verifiedByHandshake: true,
+    pinnedAt: Date.now(),
+  });
+}
 
 // Fast deflate compression for QR codes & invite blobs
 export async function compressSignalingData(str: string): Promise<string> {
@@ -400,14 +429,12 @@ export async function acceptPeerOfferAndCreateAnswer(
 
   const answerCompressed = await compressSignalingData(JSON.stringify(answerPayload));
 
-  // Pin peer's identity as verified by physical QR handshake
-  await savePinnedIdentity({
+  // Pin peer's identity as verified by physical QR handshake (prevents key replacement)
+  await pinHandshakeIdentity({
     senderId: offerPayload.senderId,
     displayName: offerPayload.senderName,
     publicKeyJwk: offerPayload.senderPublicKeyJwk,
     publicKeyId: offerPayload.senderPublicKeyId,
-    verifiedByHandshake: true,
-    pinnedAt: Date.now(),
   });
 
   return {
@@ -443,14 +470,12 @@ export async function applyPeerAnswer(
     })
   );
 
-  // Pin responder's identity as verified by physical QR handshake
-  await savePinnedIdentity({
+  // Pin responder's identity as verified by physical QR handshake (prevents key replacement)
+  await pinHandshakeIdentity({
     senderId: answerPayload.senderId,
     displayName: answerPayload.senderName,
     publicKeyJwk: answerPayload.senderPublicKeyJwk,
     publicKeyId: answerPayload.senderPublicKeyId,
-    verifiedByHandshake: true,
-    pinnedAt: Date.now(),
   });
 
   return {

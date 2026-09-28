@@ -285,20 +285,7 @@ export class MeshNetwork {
       return;
     }
 
-    // 1. Authenticate sender identity (Public Key Pinning)
-    const isSenderAuthentic = await this.authenticateSenderIdentity(
-      chatMsg.senderId,
-      chatMsg.senderName,
-      chatMsg.senderPublicKeyJwk,
-      chatMsg.senderPublicKeyId
-    );
-
-    if (!isSenderAuthentic) {
-      console.warn('Rejecting message failing sender identity authentication:', chatMsg.id);
-      return;
-    }
-
-    // 2. Canonical representation for signature verification
+    // 1. Canonical representation for signature verification
     const canonicalString = JSON.stringify({
       id: chatMsg.id,
       groupId: chatMsg.groupId,
@@ -311,7 +298,7 @@ export class MeshNetwork {
       encryptedPayload: chatMsg.encryptedPayload || null,
     });
 
-    // 3. Verify ECDSA signature
+    // 2. Verify ECDSA signature against the message's public key FIRST (prevents unsigned junk from pinning keys)
     const isValid = await verifySignature(
       canonicalString,
       chatMsg.signature,
@@ -320,6 +307,19 @@ export class MeshNetwork {
 
     if (!isValid) {
       console.warn('Rejecting message with invalid signature:', chatMsg.id);
+      return;
+    }
+
+    // 3. Authenticate sender identity (Public Key Pinning / TOFU) only after signature passes
+    const isSenderAuthentic = await this.authenticateSenderIdentity(
+      chatMsg.senderId,
+      chatMsg.senderName,
+      chatMsg.senderPublicKeyJwk,
+      chatMsg.senderPublicKeyId
+    );
+
+    if (!isSenderAuthentic) {
+      console.warn('Rejecting message failing sender identity authentication:', chatMsg.id);
       return;
     }
 
@@ -655,20 +655,7 @@ export class MeshNetwork {
     for (const chatMsg of receivedMessages) {
       const existing = await getMessageById(chatMsg.id);
       if (!existing) {
-        // Authenticate sender identity (Public Key Pinning)
-        const isSenderAuthentic = await this.authenticateSenderIdentity(
-          chatMsg.senderId,
-          chatMsg.senderName,
-          chatMsg.senderPublicKeyJwk,
-          chatMsg.senderPublicKeyId
-        );
-
-        if (!isSenderAuthentic) {
-          console.warn('Rejecting sync message failing sender identity authentication:', chatMsg.id);
-          continue;
-        }
-
-        // Verify signature
+        // 1. Verify ECDSA signature against the message's public key FIRST
         const canonicalString = JSON.stringify({
           id: chatMsg.id,
           groupId: chatMsg.groupId,
@@ -687,12 +674,28 @@ export class MeshNetwork {
           chatMsg.senderPublicKeyJwk
         );
 
-        if (isValid) {
-          chatMsg.verified = true;
-          chatMsg.isOutgoing = chatMsg.senderId === this.currentUserId;
-          await saveMessage(chatMsg);
-          this.emit('message-received', chatMsg);
+        if (!isValid) {
+          console.warn('Rejecting sync message with invalid signature:', chatMsg.id);
+          continue;
         }
+
+        // 2. Authenticate sender identity (Public Key Pinning / TOFU) only after signature passes
+        const isSenderAuthentic = await this.authenticateSenderIdentity(
+          chatMsg.senderId,
+          chatMsg.senderName,
+          chatMsg.senderPublicKeyJwk,
+          chatMsg.senderPublicKeyId
+        );
+
+        if (!isSenderAuthentic) {
+          console.warn('Rejecting sync message failing sender identity authentication:', chatMsg.id);
+          continue;
+        }
+
+        chatMsg.verified = true;
+        chatMsg.isOutgoing = chatMsg.senderId === this.currentUserId;
+        await saveMessage(chatMsg);
+        this.emit('message-received', chatMsg);
       }
     }
   }

@@ -13,6 +13,7 @@ import {
   generateUserKeyPair,
   encryptPrivateKey,
   decryptPrivateKey,
+  decryptPrivateKeyJwk,
 } from './crypto';
 import {
   getAccountByEmail,
@@ -110,8 +111,17 @@ export async function signup(params: SignupParams): Promise<UserSession> {
 
   await saveAccount(newAccount);
 
+  // Import private key as non-extractable CryptoKey so memory and session storage match login
+  const nonExtractablePrivateKey = await crypto.subtle.importKey(
+    'jwk',
+    privateKeyJwk,
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign']
+  );
+
   // Set active session in memory and IndexedDB
-  activePrivateKey = privateKey;
+  activePrivateKey = nonExtractablePrivateKey;
   currentSession = {
     userId: accountId,
     email: trimmedEmail,
@@ -130,8 +140,8 @@ export async function signup(params: SignupParams): Promise<UserSession> {
     encryptionSaltHex: newAccount.encryptionSaltHex,
   });
 
-  // Save session CryptoKey in IndexedDB for seamless reload persistence
-  await saveSessionCryptoKey(privateKey);
+  // Save non-extractable session CryptoKey in IndexedDB for seamless reload persistence
+  await saveSessionCryptoKey(nonExtractablePrivateKey);
 
   // Pin user's own identity locally
   await savePinnedIdentity({
@@ -317,13 +327,10 @@ export async function changePassword(currentPassword: string, newPassword: strin
     throw new Error('Current password is incorrect');
   }
 
-  // Decrypt current private key using current password
+  // Decrypt current private key JWK directly from encrypted bytes (no exportKey needed on non-extractable key)
   const oldEncSalt = hexToBuffer(account.encryptionSaltHex);
   const oldAesKey = await deriveKeyFromPassword(currentPassword, oldEncSalt);
-  const privateKey = await decryptPrivateKey(account.encryptedPrivateKey, oldAesKey);
-
-  // Export private key back to JWK
-  const privateKeyJwk = await crypto.subtle.exportKey('jwk', privateKey);
+  const privateKeyJwk = await decryptPrivateKeyJwk(account.encryptedPrivateKey, oldAesKey);
 
   // Generate new salts
   const newPasswordSalt = getRandomBytes(32);
@@ -336,6 +343,15 @@ export async function changePassword(currentPassword: string, newPassword: strin
   const newAesKey = await deriveKeyFromPassword(newPassword, newEncSalt);
   const newEncryptedPrivateKey = await encryptPrivateKey(privateKeyJwk, newAesKey);
 
+  // Re-import as non-extractable CryptoKey for active session
+  const newNonExtractableKey = await crypto.subtle.importKey(
+    'jwk',
+    privateKeyJwk,
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign']
+  );
+
   // Update account in DB
   const updatedAccount: UserAccount = {
     ...account,
@@ -346,8 +362,8 @@ export async function changePassword(currentPassword: string, newPassword: strin
   };
 
   await saveAccount(updatedAccount);
-  activePrivateKey = privateKey;
-  await saveSessionCryptoKey(privateKey);
+  activePrivateKey = newNonExtractableKey;
+  await saveSessionCryptoKey(newNonExtractableKey);
 }
 
 export async function deleteAccount(password: string): Promise<void> {

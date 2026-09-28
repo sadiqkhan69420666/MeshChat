@@ -194,12 +194,12 @@ export async function encryptPrivateKey(
 }
 
 /**
- * Decrypt private key with derived AES-GCM key
+ * Decrypt private key JWK with derived AES-GCM key
  */
-export async function decryptPrivateKey(
+export async function decryptPrivateKeyJwk(
   encrypted: { ivHex: string; ciphertextBase64: string },
   aesKey: CryptoKey
-): Promise<CryptoKey> {
+): Promise<JsonWebKey> {
   const iv = hexToBuffer(encrypted.ivHex);
   const ciphertext = base64ToBuffer(encrypted.ciphertextBase64);
 
@@ -210,7 +210,17 @@ export async function decryptPrivateKey(
   );
 
   const jwkStr = new TextDecoder().decode(decryptedBuf);
-  const privateKeyJwk = JSON.parse(jwkStr);
+  return JSON.parse(jwkStr) as JsonWebKey;
+}
+
+/**
+ * Decrypt private key with derived AES-GCM key and import as non-extractable CryptoKey
+ */
+export async function decryptPrivateKey(
+  encrypted: { ivHex: string; ciphertextBase64: string },
+  aesKey: CryptoKey
+): Promise<CryptoKey> {
+  const privateKeyJwk = await decryptPrivateKeyJwk(encrypted, aesKey);
 
   return await crypto.subtle.importKey(
     'jwk',
