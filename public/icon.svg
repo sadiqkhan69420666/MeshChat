@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="primaryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="50%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.2" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="#1e293b" stroke-width="4" />
+
+  <!-- Outer Chat Bubble Path -->
+  <path d="M 120 160 C 120 110, 160 80, 256 80 C 352 80, 392 110, 392 160 C 392 230, 340 270, 276 270 C 260 270, 240 275, 210 295 L 180 315 L 185 275 C 145 260, 120 220, 120 160 Z"
+        fill="url(#primaryGrad)"
+        opacity="0.15" />
+
+  <!-- Mesh Network Nodes and Links -->
+  <g filter="url(#glow)">
+    <!-- Links -->
+    <line x1="160" y1="200" x2="256" y2="140" stroke="url(#primaryGrad)" stroke-width="6" stroke-linecap="round" stroke-dasharray="2 0" />
+    <line x1="256" y1="140" x2="352" y2="190" stroke="url(#primaryGrad)" stroke-width="6" stroke-linecap="round" />
+    <line x1="352" y1="190" x2="310" y2="300" stroke="url(#primaryGrad)" stroke-width="6" stroke-linecap="round" />
+    <line x1="310" y1="300" x2="200" y2="310" stroke="url(#primaryGrad)" stroke-width="6" stroke-linecap="round" />
+    <line x1="200" y1="310" x2="160" y2="200" stroke="url(#primaryGrad)" stroke-width="6" stroke-linecap="round" />
+    <line x1="256" y1="140" x2="256" y2="230" stroke="url(#primaryGrad)" stroke-width="5" stroke-linecap="round" />
+    <line x1="160" y1="200" x2="256" y2="230" stroke="url(#primaryGrad)" stroke-width="5" stroke-linecap="round" />
+    <line x1="352" y1="190" x2="256" y2="230" stroke="url(#primaryGrad)" stroke-width="5" stroke-linecap="round" />
+    <line x1="200" y1="310" x2="256" y2="230" stroke="url(#primaryGrad)" stroke-width="5" stroke-linecap="round" />
+    <line x1="310" y1="300" x2="256" y2="230" stroke="url(#primaryGrad)" stroke-width="5" stroke-linecap="round" />
+
+    <!-- Chat tail node link -->
+    <line x1="200" y1="310" x2="150" y2="390" stroke="#10b981" stroke-width="7" stroke-linecap="round" stroke-dasharray="8 6" />
+
+    <!-- Nodes -->
+    <!-- Top Center -->
+    <circle cx="256" cy="140" r="22" fill="#0f172a" stroke="#10b981" stroke-width="6" />
+    <circle cx="256" cy="140" r="10" fill="#34d399" />
+
+    <!-- Left -->
+    <circle cx="160" cy="200" r="18" fill="#0f172a" stroke="#06b6d4" stroke-width="5" />
+    <circle cx="160" cy="200" r="8" fill="#38bdf8" />
+
+    <!-- Right -->
+    <circle cx="352" cy="190" r="18" fill="#0f172a" stroke="#3b82f6" stroke-width="5" />
+    <circle cx="352" cy="190" r="8" fill="#60a5fa" />
+
+    <!-- Center Core Hub -->
+    <circle cx="256" cy="230" r="28" fill="#0f172a" stroke="#10b981" stroke-width="7" />
+    <circle cx="256" cy="230" r="14" fill="#10b981" />
+
+    <!-- Bottom Left -->
+    <circle cx="200" cy="310" r="20" fill="#0f172a" stroke="#06b6d4" stroke-width="6" />
+    <circle cx="200" cy="310" r="9" fill="#22d3ee" />
+
+    <!-- Bottom Right -->
+    <circle cx="310" cy="300" r="18" fill="#0f172a" stroke="#3b82f6" stroke-width="5" />
+    <circle cx="310" cy="300" r="8" fill="#60a5fa" />
+
+    <!-- Tail Node -->
+    <circle cx="150" cy="390" r="15" fill="#0f172a" stroke="#10b981" stroke-width="5" />
+    <circle cx="150" cy="390" r="7" fill="#10b981" />
+  </g>
+
+  <!-- Offline signal waves badge at bottom right -->
+  <g transform="translate(340, 340)">
+    <circle cx="30" cy="30" r="42" fill="#0f172a" stroke="#334155" stroke-width="3" />
+    <path d="M 12 36 A 22 22 0 0 1 48 36" fill="none" stroke="#10b981" stroke-width="4" stroke-linecap="round" />
+    <path d="M 18 42 A 14 14 0 0 1 42 42" fill="none" stroke="#06b6d4" stroke-width="4" stroke-linecap="round" />
+    <circle cx="30" cy="48" r="4" fill="#34d399" />
+  </g>
+</svg>

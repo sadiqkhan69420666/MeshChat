@@ -1,0 +1,6 @@
+{
+  "name": "MeshChat",
+  "description": "Fully offline, serverless peer-to-peer mesh group chat web app with WebRTC, end-to-end encryption, and offline file swarming.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
