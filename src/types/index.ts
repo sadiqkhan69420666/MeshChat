@@ -167,3 +167,12 @@ export interface RateLimitRecord {
   lockedUntil: number; // Timestamp
   lastAttempt: number;
 }
+
+export interface PinnedIdentity {
+  senderId: string;
+  displayName: string;
+  publicKeyJwk: JsonWebKey;
+  publicKeyId: string;
+  verifiedByHandshake: boolean;
+  pinnedAt: number;
+}

@@ -11,6 +11,7 @@ import {
   PeerInfo,
 } from '../types';
 import { bufferToBase64, base64ToBuffer } from './crypto';
+import { savePinnedIdentity } from './storage';
 
 // Fast deflate compression for QR codes & invite blobs
 export async function compressSignalingData(str: string): Promise<string> {
@@ -50,13 +51,11 @@ export async function decompressSignalingData(data: string): Promise<string> {
   return trimmed;
 }
 
-// STUN configuration: local ICE candidates work completely offline without STUN;
-// standard public STUN servers are added for situations where devices are on same LAN/WLAN.
+// 100% Offline Local WebRTC configuration:
+// iceServers is intentionally empty to guarantee no external requests or IP leaks.
+// Local host candidates handle all LAN/WLAN/Hotspot peer-to-peer data channels.
 const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
+  iceServers: [],
   iceCandidatePoolSize: 2,
 };
 
@@ -401,6 +400,16 @@ export async function acceptPeerOfferAndCreateAnswer(
 
   const answerCompressed = await compressSignalingData(JSON.stringify(answerPayload));
 
+  // Pin peer's identity as verified by physical QR handshake
+  await savePinnedIdentity({
+    senderId: offerPayload.senderId,
+    displayName: offerPayload.senderName,
+    publicKeyJwk: offerPayload.senderPublicKeyJwk,
+    publicKeyId: offerPayload.senderPublicKeyId,
+    verifiedByHandshake: true,
+    pinnedAt: Date.now(),
+  });
+
   return {
     peer,
     answerCompressed,
@@ -433,6 +442,16 @@ export async function applyPeerAnswer(
       sdp: answerPayload.sdp,
     })
   );
+
+  // Pin responder's identity as verified by physical QR handshake
+  await savePinnedIdentity({
+    senderId: answerPayload.senderId,
+    displayName: answerPayload.senderName,
+    publicKeyJwk: answerPayload.senderPublicKeyJwk,
+    publicKeyId: answerPayload.senderPublicKeyId,
+    verifiedByHandshake: true,
+    pinnedAt: Date.now(),
+  });
 
   return {
     answerSenderName: answerPayload.senderName,

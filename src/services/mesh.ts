@@ -18,6 +18,8 @@ import {
   getMessageById,
   getAllGroupMessageSummaries,
   getMessagesByGroup,
+  getPinnedIdentity,
+  savePinnedIdentity,
 } from './storage';
 
 export type MeshEventHandler = (event: {
@@ -166,6 +168,61 @@ export class MeshNetwork {
   }
 
   /**
+   * Verify and enforce sender identity public key pinning:
+   * 1. Reject if claims to be current user with wrong key.
+   * 2. If senderId already pinned, verify that senderPublicKeyId and JWK match the pinned key.
+   * 3. If senderId not yet seen, pin to this first public key (Trust On First Use - TOFU).
+   */
+  private async authenticateSenderIdentity(
+    senderId: string,
+    senderName: string,
+    senderPublicKeyJwk: JsonWebKey,
+    senderPublicKeyId: string
+  ): Promise<boolean> {
+    // 1. Prevent identity theft of current local user
+    if (senderId === this.currentUserId) {
+      if (
+        senderPublicKeyId !== this.currentPublicKeyId ||
+        senderPublicKeyJwk.x !== this.currentPublicKeyJwk.x ||
+        senderPublicKeyJwk.y !== this.currentPublicKeyJwk.y
+      ) {
+        console.warn('Rejecting message attempting to spoof local user identity:', senderId);
+        return false;
+      }
+      return true;
+    }
+
+    // 2. Check if identity is already pinned
+    const pinned = await getPinnedIdentity(senderId);
+    if (pinned) {
+      // Compare public key ID and JWK parameters
+      if (
+        pinned.publicKeyId !== senderPublicKeyId ||
+        pinned.publicKeyJwk.x !== senderPublicKeyJwk.x ||
+        pinned.publicKeyJwk.y !== senderPublicKeyJwk.y
+      ) {
+        console.warn(
+          `Rejecting spoofed message: senderId "${senderId}" (${senderName}) does not match pinned public key (${pinned.publicKeyId} vs ${senderPublicKeyId})`
+        );
+        return false;
+      }
+      return true;
+    }
+
+    // 3. Trust On First Use (TOFU): Pin sender identity to first-seen public key
+    await savePinnedIdentity({
+      senderId,
+      displayName: senderName,
+      publicKeyJwk: senderPublicKeyJwk,
+      publicKeyId: senderPublicKeyId,
+      verifiedByHandshake: false,
+      pinnedAt: Date.now(),
+    });
+
+    return true;
+  }
+
+  /**
    * Handle incoming wire message from a direct peer
    */
   public async handleIncomingWireMessage(msg: WireMessage, fromPeerId: string) {
@@ -173,35 +230,41 @@ export class MeshNetwork {
     if (this.seenMessageIds.has(msg.id)) {
       return;
     }
-    this.recordSeenId(msg.id);
 
     // 2. Dispatch based on wire message type
     switch (msg.type) {
       case 'chat-message':
+        // Note: recordSeenId is called inside handleIncomingChatMessage ONLY AFTER signature and identity pinning verification succeed!
         await this.handleIncomingChatMessage(msg.payload as ChatMessage, msg, fromPeerId);
         break;
 
       case 'peer-gossip':
+        this.recordSeenId(msg.id);
         this.handleIncomingGossip(msg.payload as PeerGossipNode[], fromPeerId);
         break;
 
       case 'sync-summary':
+        this.recordSeenId(msg.id);
         await this.handleIncomingSyncSummary(msg.payload, fromPeerId);
         break;
 
       case 'sync-request':
+        this.recordSeenId(msg.id);
         await this.handleIncomingSyncRequest(msg.payload, fromPeerId);
         break;
 
       case 'sync-response':
+        this.recordSeenId(msg.id);
         await this.handleIncomingSyncResponse(msg.payload, fromPeerId);
         break;
 
       case 'file-chunk-req':
+        this.recordSeenId(msg.id);
         this.emit('file-chunk-received', { type: 'req', payload: msg.payload, fromPeerId });
         break;
 
       case 'file-chunk-data':
+        this.recordSeenId(msg.id);
         this.emit('file-chunk-received', { type: 'data', payload: msg.payload, fromPeerId });
         break;
 
@@ -211,16 +274,31 @@ export class MeshNetwork {
   }
 
   /**
-   * Handle Chat Message: verify signature, store, forward
+   * Handle Chat Message: verify sender identity, verify signature, store, forward
    */
   private async handleIncomingChatMessage(chatMsg: ChatMessage, wireMsg: WireMessage, fromPeerId: string) {
     // Check if already in IndexedDB
     const existing = await getMessageById(chatMsg.id);
     if (existing) {
+      this.recordSeenId(wireMsg.id);
+      this.recordSeenId(chatMsg.id);
       return;
     }
 
-    // Canonical representation for signature verification
+    // 1. Authenticate sender identity (Public Key Pinning)
+    const isSenderAuthentic = await this.authenticateSenderIdentity(
+      chatMsg.senderId,
+      chatMsg.senderName,
+      chatMsg.senderPublicKeyJwk,
+      chatMsg.senderPublicKeyId
+    );
+
+    if (!isSenderAuthentic) {
+      console.warn('Rejecting message failing sender identity authentication:', chatMsg.id);
+      return;
+    }
+
+    // 2. Canonical representation for signature verification
     const canonicalString = JSON.stringify({
       id: chatMsg.id,
       groupId: chatMsg.groupId,
@@ -233,7 +311,7 @@ export class MeshNetwork {
       encryptedPayload: chatMsg.encryptedPayload || null,
     });
 
-    // Verify ECDSA signature
+    // 3. Verify ECDSA signature
     const isValid = await verifySignature(
       canonicalString,
       chatMsg.signature,
@@ -244,6 +322,10 @@ export class MeshNetwork {
       console.warn('Rejecting message with invalid signature:', chatMsg.id);
       return;
     }
+
+    // 4. Record in seen deduplication cache ONLY AFTER verification succeeds!
+    this.recordSeenId(wireMsg.id);
+    this.recordSeenId(chatMsg.id);
 
     chatMsg.verified = true;
     chatMsg.isOutgoing = chatMsg.senderId === this.currentUserId;
@@ -573,6 +655,19 @@ export class MeshNetwork {
     for (const chatMsg of receivedMessages) {
       const existing = await getMessageById(chatMsg.id);
       if (!existing) {
+        // Authenticate sender identity (Public Key Pinning)
+        const isSenderAuthentic = await this.authenticateSenderIdentity(
+          chatMsg.senderId,
+          chatMsg.senderName,
+          chatMsg.senderPublicKeyJwk,
+          chatMsg.senderPublicKeyId
+        );
+
+        if (!isSenderAuthentic) {
+          console.warn('Rejecting sync message failing sender identity authentication:', chatMsg.id);
+          continue;
+        }
+
         // Verify signature
         const canonicalString = JSON.stringify({
           id: chatMsg.id,

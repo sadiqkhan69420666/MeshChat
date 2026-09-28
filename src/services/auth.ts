@@ -25,6 +25,9 @@ import {
   recordFailedLogin,
   resetFailedLogin,
   getAllAccounts,
+  saveSessionCryptoKey,
+  getSessionCryptoKey,
+  savePinnedIdentity,
 } from './storage';
 
 // Keep private signing key in active memory only
@@ -33,6 +36,10 @@ let currentSession: UserSession | null = null;
 
 export function getActivePrivateKey(): CryptoKey | null {
   return activePrivateKey;
+}
+
+export function isPrivateKeyUnlocked(): boolean {
+  return activePrivateKey !== null;
 }
 
 export function getCurrentSession(): UserSession | null {
@@ -123,6 +130,19 @@ export async function signup(params: SignupParams): Promise<UserSession> {
     encryptionSaltHex: newAccount.encryptionSaltHex,
   });
 
+  // Save session CryptoKey in IndexedDB for seamless reload persistence
+  await saveSessionCryptoKey(privateKey);
+
+  // Pin user's own identity locally
+  await savePinnedIdentity({
+    senderId: accountId,
+    displayName: trimmedName,
+    publicKeyJwk,
+    publicKeyId,
+    verifiedByHandshake: true,
+    pinnedAt: Date.now(),
+  });
+
   return currentSession;
 }
 
@@ -198,6 +218,19 @@ export async function login(email: string, password: string): Promise<UserSessio
     encryptionSaltHex: account.encryptionSaltHex,
   });
 
+  // Persist session key in IndexedDB for seamless reload
+  await saveSessionCryptoKey(privateKey);
+
+  // Pin user identity locally
+  await savePinnedIdentity({
+    senderId: account.id,
+    displayName: account.displayName,
+    publicKeyJwk: account.publicKeyJwk,
+    publicKeyId: account.publicKeyId,
+    verifiedByHandshake: true,
+    pinnedAt: Date.now(),
+  });
+
   return currentSession;
 }
 
@@ -228,6 +261,17 @@ export async function restoreSession(password?: string): Promise<UserSession | n
     const encSaltBytes = hexToBuffer(account.encryptionSaltHex);
     const aesKey = await deriveKeyFromPassword(password, encSaltBytes);
     activePrivateKey = await decryptPrivateKey(account.encryptedPrivateKey, aesKey);
+    await saveSessionCryptoKey(activePrivateKey);
+  } else {
+    // Restore session CryptoKey from IndexedDB
+    try {
+      const storedKey = await getSessionCryptoKey();
+      if (storedKey) {
+        activePrivateKey = storedKey;
+      }
+    } catch (err) {
+      console.warn('Could not restore session CryptoKey from IndexedDB:', err);
+    }
   }
 
   return currentSession;
@@ -244,6 +288,7 @@ export async function unlockPrivateKeyWithPassword(password: string): Promise<bo
 
   try {
     activePrivateKey = await decryptPrivateKey(account.encryptedPrivateKey, aesKey);
+    await saveSessionCryptoKey(activePrivateKey);
     return true;
   } catch {
     return false;
@@ -302,6 +347,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
 
   await saveAccount(updatedAccount);
   activePrivateKey = privateKey;
+  await saveSessionCryptoKey(privateKey);
 }
 
 export async function deleteAccount(password: string): Promise<void> {

@@ -11,10 +11,11 @@ import {
   FileMetadata,
   FileChunk,
   RateLimitRecord,
+  PinnedIdentity,
 } from '../types';
 
 const DB_NAME = 'meshchat_storage_v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -87,6 +88,12 @@ function openDB(): Promise<IDBDatabase> {
       // 9. App Settings store
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'key' });
+      }
+
+      // 10. Pinned Identities (Public Key Pinning) store
+      if (!db.objectStoreNames.contains('pinned_identities')) {
+        const store = db.createObjectStore('pinned_identities', { keyPath: 'senderId' });
+        store.createIndex('publicKeyId', 'publicKeyId', { unique: false });
       }
     };
   });
@@ -167,7 +174,44 @@ export async function getActiveSession(): Promise<any | undefined> {
 }
 
 export async function clearActiveSession(): Promise<void> {
-  await runTransaction('sessions', 'readwrite', (store) => store.delete('current_user'));
+  await runTransaction('sessions', 'readwrite', (store) => {
+    store.delete('current_user');
+    store.delete('session_crypto_key');
+  });
+}
+
+// Session CryptoKey storage (persists non-extractable / in-memory signing key for seamless reloads)
+export async function saveSessionCryptoKey(key: CryptoKey): Promise<void> {
+  await runTransaction('sessions', 'readwrite', (store) =>
+    store.put({ key: 'session_crypto_key', cryptoKey: key })
+  );
+}
+
+export async function getSessionCryptoKey(): Promise<CryptoKey | undefined> {
+  const res = await runTransaction<{ key: string; cryptoKey: CryptoKey }>('sessions', 'readonly', (store) =>
+    store.get('session_crypto_key')
+  );
+  return res?.cryptoKey;
+}
+
+// ----------------- Pinned Identities (Public Key Pinning) -----------------
+
+export async function getPinnedIdentity(senderId: string): Promise<PinnedIdentity | undefined> {
+  return runTransaction<PinnedIdentity>('pinned_identities', 'readonly', (store) =>
+    store.get(senderId)
+  );
+}
+
+export async function savePinnedIdentity(identity: PinnedIdentity): Promise<void> {
+  await runTransaction('pinned_identities', 'readwrite', (store) =>
+    store.put(identity)
+  );
+}
+
+export async function getAllPinnedIdentities(): Promise<PinnedIdentity[]> {
+  return runTransaction<PinnedIdentity[]>('pinned_identities', 'readonly', (store) =>
+    store.getAll()
+  );
 }
 
 // Rate Limiting

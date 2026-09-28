@@ -308,7 +308,7 @@ export async function deriveGroupKey(passphrase: string, saltHex: string): Promi
     {
       name: 'PBKDF2',
       salt: salt as any,
-      iterations: 100000,
+      iterations: 310000,
       hash: 'SHA-256',
     },
     baseKey,
